@@ -1,0 +1,31 @@
+name: ratings_plus
+description: A fully customizable rating bar for Flutter. Supports fractional ratings, custom shapes, gestures, forms, and global theming.
+version: 1.0.0
+repository: https://github.com/omar-hanafy/ratings_plus
+
+topics:
+  - rating
+  - star-rating
+  - widgets
+  - form
+
+environment:
+  sdk: ^3.10.4
+  flutter: ">=3.38.5"
+
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  web:
+  windows:
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
