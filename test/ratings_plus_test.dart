@@ -1,7 +1,7 @@
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ratings_plus/ratings_plus.dart';
 
 void main() {
@@ -104,8 +104,6 @@ void main() {
     });
 
     testWidgets('read-only mode does not respond to taps', (tester) async {
-      bool callbackCalled = false;
-
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -128,7 +126,10 @@ void main() {
       await tester.tapAt(topLeft + const Offset(180, 20));
       await tester.pump();
 
-      expect(callbackCalled, false);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Rating')).value,
+        '3.0 / 5.0',
+      );
     });
 
     testWidgets('minRating constraint is respected', (tester) async {
@@ -191,7 +192,7 @@ void main() {
       await gesture.up();
       await tester.pump();
 
-      expect(lastValue, 1.0);
+      expect(lastValue, isNull);
     });
 
     testWidgets('gestureMode.drag responds to drag', (tester) async {
@@ -648,7 +649,9 @@ void main() {
         matchesSemantics(
           label: 'Star Rating',
           value: '3.0 / 5.0',
+          isSlider: true,
           isFocusable: true,
+          hasFocusAction: true,
           isEnabled: true,
           hasEnabledState: true,
           isReadOnly: false,
@@ -696,8 +699,13 @@ void main() {
         ),
       );
 
-      // The widget should render without issues
-      expect(find.byType(RatingBarIndicator), findsOneWidget);
+      final origin = tester.getTopLeft(find.byType(RatingBarIndicator));
+      await tester.tapAt(origin + const Offset(180, 20));
+      await tester.pump();
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Rating')).value,
+        '3.0 / 5.0',
+      );
     });
 
     testWidgets('semantics are read-only with no actions', (tester) async {
@@ -753,7 +761,7 @@ void main() {
         ),
       );
 
-      expect(find.byType(RatingBar), findsOneWidget);
+      expect(tester.getSize(find.byType(RatingBar)), const Size(282, 50));
     });
 
     test('copyWith creates modified copy', () {

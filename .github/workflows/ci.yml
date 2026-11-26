@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Flutter ${{ matrix.flutter }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter: ['3.38.5', stable]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: flutter-actions/setup-flutter@0e3ac53a5126c46be01612423cf26b5d59018adc # v5.0
+        with:
+          version: ${{ matrix.flutter == 'stable' && 'latest' || matrix.flutter }}
+      - name: Resolve package and example dependencies
+        run: flutter pub get --example
+      - name: Check formatting
+        if: matrix.flutter == 'stable'
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Analyze
+        run: flutter analyze --no-pub --fatal-infos --fatal-warnings
+      - name: Check legacy Material theme compatibility
+        if: matrix.flutter == '3.38.5'
+        run: dart analyze --fatal-infos test_fixes/material_theme.dart
+      - name: Verify the Material theme migration
+        if: matrix.flutter == 'stable'
+        run: dart fix test_fixes --compare-to-golden
+      - name: Test package
+        run: flutter test --no-pub
+      - name: Test example
+        working-directory: example
+        run: flutter test --no-pub
+      - name: Validate package archive
+        if: matrix.flutter == 'stable'
+        run: dart pub publish --dry-run
+      - name: Check pub points
+        if: matrix.flutter == 'stable'
+        run: |
+          dart pub global activate pana 0.23.14
+          pana --exit-code-threshold 0 .
