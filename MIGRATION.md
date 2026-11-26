@@ -50,3 +50,10 @@ provided the rest of its dependencies accept that version. On Flutter 3.50.1,
 the SDK import then works with rating themes and emits a deprecation notice.
 After migrating the app and packages that exchange Material types, loosen the
 pin and run `flutter pub upgrade material_ui`.
+
+## Preview a tap before release
+
+In 1.x a press could change the rating before Flutter had decided between
+tapping the bar and scrolling its parent. In 2.0 `onChanged` commits a tap
+when it succeeds on release. Use `onChangeStart` for a temporary preview
+while the pointer is down. A canceled tap leaves the selected rating intact.

@@ -136,7 +136,7 @@ Form(
 
 Use the pointer callbacks to track a tap or drag from selection to completion.
 
-* `onChangeStart` marks the start of a rating gesture.
+* `onChangeStart` reports the rating under the pointer when a tap or drag starts. Use it for a temporary preview.
 * `onChanged` reports the selected value after a tap or as a drag crosses rating steps. Keyboard and accessibility adjustments also use this callback.
 * `onChangeEnd` receives the final gesture value. If a parent scrollable cancels a pending tap, it receives the current rating.
 

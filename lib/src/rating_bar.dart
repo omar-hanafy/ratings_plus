@@ -295,7 +295,8 @@ class RatingBar extends StatefulWidget {
   /// This is called whenever the user updates the rating via tap, drag, or
   /// keyboard interaction.
   ///
-  /// * **Drag:** Called continuously as the pointer moves. If your state logic
+  /// * **Drag:** Called for each distinct rating as the pointer moves, even
+  ///   before a controlled parent rebuilds. If your state logic
   ///   is expensive, consider throttling this callback or using [onChangeEnd]
   ///   to commit the final value.
   /// * **Tap:** Called once when the tap is confirmed.
@@ -394,7 +395,8 @@ class RatingBar extends StatefulWidget {
   /// Whether to show a hover preview effect (desktop/web).
   ///
   /// Moving the mouse previews the snapped rating at the pointer without
-  /// committing it. Pressing the bar or leaving it ends the preview.
+  /// committing it. Leaving the bar or adjusting it by pointer, keyboard,
+  /// or an accessibility action ends the preview.
   /// Defaults to `false`.
   final bool enableHover;
 
@@ -484,23 +486,24 @@ class RatingBar extends StatefulWidget {
   State<RatingBar> createState() => _RatingBarState();
 }
 
+class _RatingGesture {
+  _RatingGesture(this.initialValue);
+
+  final double initialValue;
+  double? lastProposal;
+  bool dragging = false;
+}
+
 class _RatingBarState extends State<RatingBar> {
   late double _internalValue;
 
   /// Preview value used for hover.
   double? _hoverValue;
 
-  bool _isPressed = false;
   bool _isHovered = false;
   bool _hasFocus = false;
-  bool _isDragging = false;
-  bool _tapCanceled = false;
-
-  /// Used to avoid spamming feedback.
-  double? _lastFeedbackValue;
-
-  /// A controlled parent may rebuild after the pointer has already lifted.
-  double? _lastInteractionValue;
+  _RatingGesture? _gesture;
+  double? _pendingDragTarget;
 
   FocusNode? _internalFocusNode;
 
@@ -516,6 +519,34 @@ class _RatingBarState extends State<RatingBar> {
   @override
   void didUpdateWidget(RatingBar oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    final gesture = _gesture;
+    if (gesture != null) {
+      final retiresRecognizer =
+          !widget._isInteractive ||
+          (gesture.dragging
+              ? widget.direction != oldWidget.direction ||
+                    widget.gestureMode == RatingGestureMode.tap
+              : widget.gestureMode == RatingGestureMode.drag);
+      if (retiresRecognizer) {
+        _gesture = null;
+        final onEnd = oldWidget.onChangeEnd;
+        final oldMaximum =
+            oldWidget.maxRating ?? oldWidget.itemCount.toDouble();
+        final endValue =
+            gesture.lastProposal ??
+            (oldWidget.value ?? _internalValue).clamp(
+              oldWidget.minRating,
+              oldMaximum,
+            );
+        // The owner may call setState when releasing its scroll lock.
+        if (onEnd != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) onEnd(endValue);
+          });
+        }
+      }
+    }
 
     // If we were uncontrolled and the initialValue changed, reflect it.
     final isControlled = widget.value != null;
@@ -579,6 +610,12 @@ class _RatingBarState extends State<RatingBar> {
 
     final value = _currentValue;
     final displayValue = _hoverValue ?? value;
+    final dragging = _gesture?.dragging ?? false;
+    // The last drag move and pointer-up can both precede the same frame.
+    // Only bypass animation for the submitted value the owner actually shows.
+    final direct =
+        _hoverValue != null || dragging || _pendingDragTarget == value;
+    if (!dragging) _pendingDragTarget = null;
 
     // Convert to visual units (0..itemCount).
     final visualValue = _valueToVisual(
@@ -589,7 +626,7 @@ class _RatingBarState extends State<RatingBar> {
     final states = <WidgetState>{
       if (!widget._isInteractive) WidgetState.disabled,
       if (_isHovered) WidgetState.hovered,
-      if (_isPressed) WidgetState.pressed,
+      if (_gesture != null) WidgetState.pressed,
       if (_hasFocus) WidgetState.focused,
     };
 
@@ -599,34 +636,26 @@ class _RatingBarState extends State<RatingBar> {
             ? SystemMouseCursors.click
             : SystemMouseCursors.basic);
 
-    final bar = TweenAnimationBuilder<double>(
-      // Only set an `end` so Flutter can animate from the previous value.
-      tween: Tween<double>(end: visualValue),
-      duration: _hoverValue != null || _isDragging
-          ? Duration.zero
-          : animDuration,
+    final bar = _RatingBarItems(
+      duration: direct ? Duration.zero : animDuration,
       curve: animCurve,
-      builder: (context, animatedVisual, _) {
-        return _RatingBarItems(
-          itemCount: widget.itemCount,
-          itemSize: itemSize,
-          spacing: spacing,
-          direction: widget.direction,
-          verticalDirection: widget.verticalDirection,
-          textDirection: textDirection,
-          visualValue: animatedVisual,
-          itemBuilder: widget.itemBuilder,
-          unratedBuilder: widget.unratedBuilder,
-          unratedColor:
-              widget.unratedColor ??
-              themeExt.unratedColor ??
-              Theme.of(context).disabledColor,
-          showGlow: glowEnabled && _isPressed,
-          glowColor: glowColor,
-          glowRadius: glowRadius,
-          glowBlurRadius: glowBlurRadius,
-        );
-      },
+      itemCount: widget.itemCount,
+      itemSize: itemSize,
+      spacing: spacing,
+      direction: widget.direction,
+      verticalDirection: widget.verticalDirection,
+      textDirection: textDirection,
+      visualValue: visualValue,
+      itemBuilder: widget.itemBuilder,
+      unratedBuilder: widget.unratedBuilder,
+      unratedColor:
+          widget.unratedColor ??
+          themeExt.unratedColor ??
+          Theme.of(context).disabledColor,
+      showGlow: glowEnabled && _gesture != null,
+      glowColor: glowColor,
+      glowRadius: glowRadius,
+      glowBlurRadius: glowBlurRadius,
     );
 
     String formatValue(double rating) =>
@@ -734,8 +763,10 @@ class _RatingBarState extends State<RatingBar> {
     if (step <= 0) return raw;
 
     final steps = raw / step;
-    final snappedSteps = isTap ? steps.ceilToDouble() : steps.roundToDouble();
-    return snappedSteps * step;
+    if (!steps.isFinite) return raw;
+    final nearest = steps.roundToDouble() * step;
+    if (!isTap || _sameRating(raw, nearest)) return nearest;
+    return steps.ceilToDouble() * step;
   }
 
   double _positionToValue(
@@ -796,22 +827,17 @@ class _RatingBarState extends State<RatingBar> {
     return snapped.clamp(_effectiveMinRating(maxRating), maxRating).toDouble();
   }
 
-  void _setValue(double newValue, {required bool feedback}) {
-    final maxRating = widget.maxRating ?? widget.itemCount.toDouble();
-    final clamped = newValue
-        .clamp(_effectiveMinRating(maxRating), maxRating)
-        .toDouble();
+  void _setValue(double newValue, {required bool feedback, double? previous}) {
+    final clamped = _clampValue(newValue);
+    if (_hoverValue != null) setState(() => _hoverValue = null);
 
     // A FormField can hold an unrated value below the displayed minimum until
     // the user explicitly selects that minimum.
-    final stored = widget.value ?? _internalValue;
-    if ((clamped - stored).abs() < _effectiveEpsilon(maxRating)) {
+    if (_sameRating(clamped, previous ?? widget.value ?? _internalValue)) {
       return;
     }
 
-    // Feedback: only emit if the snapped value changed.
-    if (feedback && widget.step > 0 && _lastFeedbackValue != clamped) {
-      _lastFeedbackValue = clamped;
+    if (feedback && widget.step > 0) {
       unawaited(HapticFeedback.selectionClick());
     }
 
@@ -914,10 +940,11 @@ class _RatingBarState extends State<RatingBar> {
         widget.gestureMode == RatingGestureMode.drag ||
         widget.gestureMode == RatingGestureMode.tapAndDrag;
 
-    double valueAt(Offset localPosition, {required bool isTap}) {
+    double valueAt(Offset globalPosition, {required bool isTap}) {
+      final box = context.findRenderObject()! as RenderBox;
       return _positionToValue(
-        localPosition,
-        size: context.size!,
+        box.globalToLocal(globalPosition),
+        size: box.size,
         textDirection: textDirection,
         maxRating: maxRating,
         isTap: isTap,
@@ -927,54 +954,58 @@ class _RatingBarState extends State<RatingBar> {
     }
 
     void beginInteraction(double next, {bool dragging = false}) {
-      final starting = !_isPressed;
+      final starting = _gesture == null;
       setState(() {
-        _isPressed = true;
-        _isDragging = dragging;
-        _tapCanceled = false;
+        (_gesture ??= _RatingGesture(widget.value ?? _internalValue)).dragging =
+            dragging;
         _hoverValue = null;
       });
       if (starting) widget.onChangeStart?.call(next);
     }
 
     void commit(double value) {
-      _lastInteractionValue = value;
-      _setValue(value, feedback: enableFeedback);
+      final gesture = _gesture;
+      if (gesture == null) return;
+      final previous = gesture.lastProposal ?? gesture.initialValue;
+      gesture.lastProposal = value;
+      if (gesture.dragging) _pendingDragTarget = value;
+      _setValue(value, feedback: enableFeedback, previous: previous);
     }
 
     void endInteraction() {
-      if (!_isPressed) return;
-      final value = _lastInteractionValue ?? _currentValue;
-      setState(() {
-        _isPressed = false;
-        _isDragging = false;
-        _tapCanceled = false;
-        _lastInteractionValue = null;
-      });
+      final gesture = _gesture;
+      if (gesture == null) return;
+      final value = gesture.lastProposal ?? _currentValue;
+      setState(() => _gesture = null);
       widget.onChangeEnd?.call(value);
     }
 
     void cancelTap() {
-      _tapCanceled = true;
+      final gesture = _gesture;
+      if (gesture == null) return;
       // A winning drag starts in the same pointer dispatch as the tap's
       // cancellation. Keep the original start/end pair across that handoff.
       scheduleMicrotask(() {
-        if (mounted && _tapCanceled) endInteraction();
+        if (mounted && _gesture == gesture && !gesture.dragging) {
+          endInteraction();
+        }
       });
     }
 
     void startDrag(DragStartDetails details) {
-      final next = valueAt(details.localPosition, isTap: false);
+      final next = valueAt(details.globalPosition, isTap: false);
       beginInteraction(next, dragging: true);
       commit(next);
     }
 
     void updateDrag(DragUpdateDetails details) {
-      commit(valueAt(details.localPosition, isTap: false));
+      if (_gesture?.dragging ?? false) {
+        commit(valueAt(details.globalPosition, isTap: false));
+      }
     }
 
     void cancelDrag() {
-      if (_isDragging) endInteraction();
+      if (_gesture?.dragging ?? false) endInteraction();
     }
 
     final horizontalDrag = allowDrag && widget.direction == Axis.horizontal;
@@ -984,14 +1015,13 @@ class _RatingBarState extends State<RatingBar> {
       behavior: HitTestBehavior.opaque,
       onTapDown: allowTap
           ? (details) =>
-                beginInteraction(valueAt(details.localPosition, isTap: true))
+                beginInteraction(valueAt(details.globalPosition, isTap: true))
           : null,
       onTapUp: allowTap
           ? (details) {
-              final tapped = valueAt(details.localPosition, isTap: true);
+              final tapped = valueAt(details.globalPosition, isTap: true);
               final clear =
-                  widget.allowClear &&
-                  (tapped - _currentValue).abs() < _effectiveEpsilon(maxRating);
+                  widget.allowClear && _sameRating(tapped, _currentValue);
               commit(clear ? _effectiveMinRating(maxRating) : tapped);
               endInteraction();
             }
@@ -1009,9 +1039,15 @@ class _RatingBarState extends State<RatingBar> {
     );
   }
 
-  double _effectiveEpsilon(double maxRating) {
-    // Scale epsilon to maxRating to avoid floating comparison issues.
-    return math.max(1e-9, maxRating * 1e-9);
+  bool _sameRating(double a, double b) {
+    if (a == b) return true;
+    if (widget.step == 0) return false;
+    // Decimal grid boundaries can differ by a few floating-point rounding
+    // errors. A tolerance below half a step keeps adjacent ratings distinct.
+    const roundingError = 4 * 2.220446049250313e-16;
+    final tolerance = math.max(a.abs(), b.abs()) * roundingError;
+    final difference = (a - b).abs();
+    return difference <= tolerance && difference < widget.step / 2;
   }
 }
 
@@ -1019,8 +1055,10 @@ class _RatingBarState extends State<RatingBar> {
 // Internal Widgets
 // ---------------------------------------------------------------------------
 
-class _RatingBarItems extends StatelessWidget {
+class _RatingBarItems extends ImplicitlyAnimatedWidget {
   const _RatingBarItems({
+    required super.duration,
+    required super.curve,
     required this.itemCount,
     required this.itemSize,
     required this.spacing,
@@ -1055,11 +1093,13 @@ class _RatingBarItems extends StatelessWidget {
   final double glowBlurRadius;
 
   @override
-  Widget build(BuildContext context) {
+  _RatingBarItemsState createState() => _RatingBarItemsState();
+
+  Widget _buildItems(BuildContext context, double animatedValue) {
     final children = <Widget>[];
 
     for (var i = 0; i < itemCount; i++) {
-      final fill = (visualValue - i).clamp(0.0, 1.0);
+      final fill = (animatedValue - i).clamp(0.0, 1.0);
       final ratedChild = itemBuilder(context, i);
       final unratedChild = unratedBuilder?.call(context, i);
 
@@ -1105,6 +1145,35 @@ class _RatingBarItems extends StatelessWidget {
       children: children,
     );
   }
+}
+
+class _RatingBarItemsState extends AnimatedWidgetBaseState<_RatingBarItems> {
+  Tween<double>? _fill;
+
+  @override
+  void forEachTween(TweenVisitor<dynamic> visitor) {
+    _fill =
+        visitor(
+              _fill,
+              widget.visualValue,
+              (value) => Tween<double>(begin: value as double),
+            )
+            as Tween<double>?;
+  }
+
+  @override
+  void didUpdateWidget(_RatingBarItems oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A drag can reach the existing animation target before the fill gets
+    // there. Settle that animation even when the target itself is unchanged.
+    if (widget.duration == Duration.zero && controller.isAnimating) {
+      controller.value = 1;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      widget._buildItems(context, _fill!.evaluate(animation));
 }
 
 class _RatingItem extends StatelessWidget {

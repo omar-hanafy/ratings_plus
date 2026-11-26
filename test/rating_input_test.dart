@@ -171,6 +171,327 @@ void main() {
   });
 
   testWidgets(
+    'drag release before a frame paints the last proposal, then animates later changes',
+    (tester) async {
+      Widget control(
+        double value,
+        ValueChanged<double> onChanged, {
+        double? maximum,
+      }) => _app(
+        RepaintBoundary(
+          key: _painting,
+          child: RatingBar(
+            value: value,
+            maxRating: maximum,
+            glow: false,
+            itemBuilder: _item,
+            onChanged: onChanged,
+            unratedColor: _unrated,
+            animationDuration: const Duration(seconds: 1),
+            animationCurve: Curves.linear,
+          ),
+        ),
+      );
+      final changes = <double>[];
+      await tester.pumpWidget(control(1, changes.add));
+      final origin = tester.getTopLeft(find.byKey(_painting));
+      final drag = await tester.startGesture(origin + const Offset(25, 20));
+      await drag.moveTo(origin + const Offset(80, 20));
+      await tester.pumpWidget(control(changes.last, changes.add));
+      await drag.moveTo(origin + const Offset(160, 20));
+      await drag.up();
+      await tester.pumpWidget(control(changes.last, changes.add));
+      const sample = [Offset(142, 20)];
+      expect(changes.last, 4);
+      expect(await _sample(tester, sample), [_rated]);
+      await tester.pumpWidget(control(4, changes.add, maximum: 10));
+      expect(await _sample(tester, sample), [_rated]);
+      await tester.pumpAndSettle();
+      expect(await _sample(tester, sample), [_unrated]);
+      await tester.pumpWidget(control(4, changes.add));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(control(1, changes.add));
+      expect(await _sample(tester, sample), [_rated]);
+      await tester.pumpAndSettle();
+      expect(await _sample(tester, sample), [_unrated]);
+      await tester.tapAt(origin + const Offset(150, 20));
+      await tester.pumpWidget(control(changes.last, changes.add));
+      expect(await _sample(tester, sample), [_unrated]);
+      await tester.pumpAndSettle();
+      expect(await _sample(tester, sample), [_rated]);
+    },
+  );
+
+  testWidgets(
+    'a drag that reaches an animating target settles the fill there',
+    (tester) async {
+      Widget control(double value) => _app(
+        RepaintBoundary(
+          key: _painting,
+          child: RatingBar(
+            value: value,
+            glow: false,
+            itemBuilder: _item,
+            onChanged: (_) {},
+            unratedColor: _unrated,
+            animationDuration: const Duration(seconds: 1),
+            animationCurve: Curves.linear,
+          ),
+        ),
+      );
+      await tester.pumpWidget(control(1));
+      await tester.pumpWidget(control(4));
+      await tester.pump(const Duration(milliseconds: 100));
+      const sample = [Offset(142, 20)];
+      expect(await _sample(tester, sample), [_unrated]);
+      final origin = tester.getTopLeft(find.byKey(_painting));
+      final drag = await tester.startGesture(origin + const Offset(20, 20));
+      await drag.moveTo(origin + const Offset(160, 20));
+      await drag.up();
+      await tester.pump();
+      expect(await _sample(tester, sample), [_rated]);
+      await tester.pumpWidget(control(1));
+      expect(await _sample(tester, sample), [_rated]);
+      await tester.pumpAndSettle();
+      expect(await _sample(tester, sample), [_unrated]);
+    },
+  );
+
+  for (final change in ['disable', 'mode', 'axis']) {
+    testWidgets(
+      'retiring a drag on $change balances its callback and releases its press',
+      (tester) async {
+        final starts = <double>[];
+        final oldEnds = <double>[];
+        final newEnds = <double>[];
+        final pressed = <bool>[];
+        late StateSetter rebuild;
+        var interrupted = false;
+        var useOldCallback = true;
+        await tester.pumpWidget(
+          _app(
+            StatefulBuilder(
+              builder: (context, setState) {
+                rebuild = setState;
+                return RatingBar(
+                  gestureMode: interrupted && change == 'mode'
+                      ? RatingGestureMode.tap
+                      : RatingGestureMode.tapAndDrag,
+                  direction: interrupted && change == 'axis'
+                      ? Axis.vertical
+                      : Axis.horizontal,
+                  itemBuilder: _item,
+                  onChanged: interrupted && change == 'disable' ? null : (_) {},
+                  onChangeStart: starts.add,
+                  onChangeEnd: useOldCallback
+                      ? (value) => setState(() => oldEnds.add(value))
+                      : newEnds.add,
+                  mouseCursor: WidgetStateProperty.resolveWith((states) {
+                    pressed.add(states.contains(WidgetState.pressed));
+                    return null;
+                  }),
+                );
+              },
+            ),
+          ),
+        );
+        final origin = tester.getTopLeft(find.byType(RatingBar));
+        final drag = await tester.startGesture(origin + const Offset(20, 20));
+        await drag.moveTo(origin + const Offset(120, 20));
+        await tester.pump();
+        expect(starts, hasLength(1));
+        expect(pressed.last, isTrue);
+        rebuild(() {
+          interrupted = true;
+          useOldCallback = false;
+        });
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(oldEnds, [3.0]);
+        expect(pressed.last, isFalse);
+        await drag.up();
+        rebuild(() => interrupted = false);
+        await tester.pump();
+        await tester.tapAt(origin + const Offset(175, 20));
+        await tester.pump();
+        expect(starts, hasLength(2));
+        expect(newEnds, [5.0]);
+        expect(oldEnds, [3.0]);
+      },
+    );
+  }
+
+  testWidgets(
+    'controlled drag reports distinct proposals before the parent rebuilds',
+    (tester) async {
+      final changes = <double>[];
+      final ends = <double>[];
+      await tester.pumpWidget(
+        _app(
+          RatingBar(
+            value: 2,
+            itemBuilder: _item,
+            onChanged: changes.add,
+            onChangeEnd: ends.add,
+          ),
+        ),
+      );
+      final origin = tester.getTopLeft(find.byType(RatingBar));
+      final drag = await tester.startGesture(origin + const Offset(80, 20));
+      await drag.moveTo(origin + const Offset(153, 20));
+      await drag.moveTo(origin + const Offset(157, 20));
+      await drag.moveTo(origin + const Offset(80, 20));
+      await drag.up();
+      await tester.pump();
+      expect(changes, [4.0, 2.0]);
+      expect(ends, [2.0]);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Rating')).value,
+        '2.0 / 5.0',
+      );
+    },
+  );
+
+  testWidgets('a held tap uses the current position of a translated bar', (
+    tester,
+  ) async {
+    final changes = <double>[];
+    Widget shifted(double distance) => _app(
+      Transform.translate(
+        offset: Offset(distance, 0),
+        child: RatingBar(itemBuilder: _item, onChanged: changes.add),
+      ),
+    );
+    await tester.pumpWidget(shifted(0));
+    final origin = tester.getTopLeft(find.byType(RatingBar));
+    final gesture = await tester.startGesture(origin + const Offset(105, 20));
+    await tester.pump(kPressTimeout);
+    await tester.pumpWidget(shifted(40));
+    await gesture.up();
+    expect(changes, [2.0]);
+  });
+
+  testWidgets(
+    'controlled resets allow feedback for a later selection of the same step',
+    (tester) async {
+      final haptics = <Object?>[];
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments);
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      Widget control(double value) =>
+          _app(RatingBar(value: value, itemBuilder: _item, onChanged: (_) {}));
+      await tester.pumpWidget(control(2));
+      final target =
+          tester.getTopLeft(find.byType(RatingBar)) + const Offset(100, 20);
+      await tester.tapAt(target);
+      await tester.pumpWidget(control(3));
+      await tester.pumpWidget(control(2));
+      await tester.tapAt(target);
+      await tester.pump();
+      expect(haptics, List.filled(2, 'HapticFeedbackType.selectionClick'));
+    },
+  );
+
+  for (final input in ['keyboard', 'semantics']) {
+    testWidgets('a stationary hover yields to a rating set by $input', (
+      tester,
+    ) async {
+      final changes = <double>[];
+      await tester.pumpWidget(
+        _app(
+          RepaintBoundary(
+            key: _painting,
+            child: RatingBar(
+              autofocus: true,
+              initialValue: 1,
+              enableHover: true,
+              animationDuration: Duration.zero,
+              unratedColor: _unrated,
+              itemBuilder: _item,
+              onChanged: changes.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final origin = tester.getTopLeft(find.byKey(_painting));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: origin - const Offset(1, 1));
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(origin + const Offset(148, 20));
+      await tester.pump();
+      const points = [Offset(70, 20), Offset(140, 20)];
+      expect(await _sample(tester, points), [_rated, _rated]);
+      if (input == 'keyboard') {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      } else {
+        tester.semantics.performAction(
+          find.semantics.byLabel('Rating'),
+          ui.SemanticsAction.increase,
+        );
+      }
+      await tester.pump();
+      expect(changes, [2.0]);
+      expect(await _sample(tester, points), [_rated, _unrated]);
+    });
+  }
+
+  for (final (maximum, step) in [(1e-10, 1e-11), (1e12, 1.0)]) {
+    testWidgets('one step remains selectable on a scale of $maximum', (
+      tester,
+    ) async {
+      final changes = <double>[];
+      await tester.pumpWidget(
+        _app(
+          RatingBar(
+            autofocus: true,
+            initialValue: maximum / 2,
+            maxRating: maximum,
+            step: step,
+            itemBuilder: _item,
+            onChanged: changes.add,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(changes, [maximum / 2 + step]);
+    });
+  }
+
+  testWidgets(
+    'equivalent decimal tap boundaries keep their step and clear normally',
+    (tester) async {
+      final changes = <double>[];
+      await tester.pumpWidget(
+        _app(
+          RatingBar(
+            itemCount: 1,
+            itemSize: 100,
+            maxRating: 1,
+            initialValue: 0.28,
+            step: 0.02,
+            itemBuilder: _item,
+            onChanged: changes.add,
+          ),
+        ),
+      );
+      final origin = tester.getTopLeft(find.byType(RatingBar));
+      await tester.tapAt(origin + const Offset(28, 15));
+      await tester.pump();
+      expect(changes, [0.0]);
+    },
+  );
+
+  testWidgets(
     'indicator clamps out-of-range values and paints upward half fills',
     (tester) async {
       Widget indicator(double value) => _app(
