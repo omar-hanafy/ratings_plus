@@ -352,6 +352,98 @@ void main() {
     },
   );
 
+  testWidgets('a held tap commits against the current controlled value', (
+    tester,
+  ) async {
+    final parent = ValueNotifier<double>(2);
+    addTearDown(parent.dispose);
+    final changes = <double>[];
+    final ends = <double>[];
+    await tester.pumpWidget(
+      _app(
+        ValueListenableBuilder<double>(
+          valueListenable: parent,
+          builder: (context, value, child) => RatingBar(
+            value: value,
+            itemBuilder: _item,
+            onChanged: (rating) {
+              changes.add(rating);
+              parent.value = rating;
+            },
+            onChangeEnd: ends.add,
+          ),
+        ),
+      ),
+    );
+    final origin = tester.getTopLeft(find.byType(RatingBar));
+    final gesture = await tester.startGesture(origin + const Offset(70, 20));
+    await tester.pump(kPressTimeout);
+    parent.value = 4;
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+    expect(changes, [2.0]);
+    expect(ends, [2.0]);
+    expect(parent.value, 2);
+  });
+
+  testWidgets('a rounded decimal drag target paints on the release frame', (
+    tester,
+  ) async {
+    final parent = ValueNotifier<double>(0);
+    addTearDown(parent.dispose);
+    await tester.pumpWidget(
+      _app(
+        RepaintBoundary(
+          key: _painting,
+          child: ValueListenableBuilder<double>(
+            valueListenable: parent,
+            builder: (context, value, child) => RatingBar(
+              value: value,
+              maxRating: 1,
+              step: 0.1,
+              glow: false,
+              animationDuration: const Duration(seconds: 1),
+              unratedColor: _unrated,
+              itemBuilder: _item,
+              onChanged: (rating) => parent.value = (rating * 10).round() / 10,
+            ),
+          ),
+        ),
+      ),
+    );
+    final origin = tester.getTopLeft(find.byKey(_painting));
+    final drag = await tester.startGesture(origin + const Offset(5, 20));
+    await drag.moveTo(origin + const Offset(60, 20));
+    await drag.up();
+    await tester.pump();
+    expect(parent.value, 0.3);
+    expect(await _sample(tester, const [Offset(42, 20), Offset(70, 20)]), [
+      _rated,
+      _unrated,
+    ]);
+  });
+
+  testWidgets('a continuous tap clears a numerically equivalent rating', (
+    tester,
+  ) async {
+    final changes = <double>[];
+    await tester.pumpWidget(
+      _app(
+        RatingBar(
+          value: 0.28,
+          maxRating: 1,
+          step: 0,
+          itemBuilder: _item,
+          onChanged: changes.add,
+        ),
+      ),
+    );
+    final origin = tester.getTopLeft(find.byType(RatingBar));
+    await tester.tapAt(origin + const Offset(56, 20));
+    expect(changes, [0.0]);
+  });
+
   testWidgets('a held tap uses the current position of a translated bar', (
     tester,
   ) async {

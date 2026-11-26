@@ -487,9 +487,6 @@ class RatingBar extends StatefulWidget {
 }
 
 class _RatingGesture {
-  _RatingGesture(this.initialValue);
-
-  final double initialValue;
   double? lastProposal;
   bool dragging = false;
 }
@@ -613,8 +610,11 @@ class _RatingBarState extends State<RatingBar> {
     final dragging = _gesture?.dragging ?? false;
     // The last drag move and pointer-up can both precede the same frame.
     // Only bypass animation for the submitted value the owner actually shows.
+    final pending = _pendingDragTarget;
     final direct =
-        _hoverValue != null || dragging || _pendingDragTarget == value;
+        _hoverValue != null ||
+        dragging ||
+        (pending != null && _sameRating(pending, value));
     if (!dragging) _pendingDragTarget = null;
 
     // Convert to visual units (0..itemCount).
@@ -833,7 +833,10 @@ class _RatingBarState extends State<RatingBar> {
 
     // A FormField can hold an unrated value below the displayed minimum until
     // the user explicitly selects that minimum.
-    if (_sameRating(clamped, previous ?? widget.value ?? _internalValue)) {
+    final stored = previous ?? widget.value ?? _internalValue;
+    // Continuous input reports each distinct sample. Tap hit-testing can
+    // still recognize the same position after coordinate conversion.
+    if (widget.step == 0 ? clamped == stored : _sameRating(clamped, stored)) {
       return;
     }
 
@@ -956,8 +959,7 @@ class _RatingBarState extends State<RatingBar> {
     void beginInteraction(double next, {bool dragging = false}) {
       final starting = _gesture == null;
       setState(() {
-        (_gesture ??= _RatingGesture(widget.value ?? _internalValue)).dragging =
-            dragging;
+        (_gesture ??= _RatingGesture()).dragging = dragging;
         _hoverValue = null;
       });
       if (starting) widget.onChangeStart?.call(next);
@@ -966,7 +968,7 @@ class _RatingBarState extends State<RatingBar> {
     void commit(double value) {
       final gesture = _gesture;
       if (gesture == null) return;
-      final previous = gesture.lastProposal ?? gesture.initialValue;
+      final previous = gesture.lastProposal;
       gesture.lastProposal = value;
       if (gesture.dragging) _pendingDragTarget = value;
       _setValue(value, feedback: enableFeedback, previous: previous);
@@ -1041,13 +1043,13 @@ class _RatingBarState extends State<RatingBar> {
 
   bool _sameRating(double a, double b) {
     if (a == b) return true;
-    if (widget.step == 0) return false;
     // Decimal grid boundaries can differ by a few floating-point rounding
     // errors. A tolerance below half a step keeps adjacent ratings distinct.
     const roundingError = 4 * 2.220446049250313e-16;
     final tolerance = math.max(a.abs(), b.abs()) * roundingError;
     final difference = (a - b).abs();
-    return difference <= tolerance && difference < widget.step / 2;
+    return difference <= tolerance &&
+        (widget.step == 0 || difference < widget.step / 2);
   }
 }
 
