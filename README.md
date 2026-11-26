@@ -1,8 +1,6 @@
 # Ratings Plus
 
-A modern, high-performance, and accessible rating bar for Flutter.
-
-`ratings_plus` is designed to be versatile, supporting both interactive input and read-only displays with precision (fractional ratings), custom shapes, and extensive styling options.
+Collect and display fractional ratings in Flutter with custom item widgets, keyboard and pointer input, and form validation.
 
 [![Pub Version](https://img.shields.io/pub/v/ratings_plus)](https://pub.dev/packages/ratings_plus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -24,7 +22,7 @@ A modern, high-performance, and accessible rating bar for Flutter.
 *   **Input & Accessibility**:
     *   **Mouse Support**: Hover effects and custom cursors.
     *   **Keyboard Support**: Arrow keys, Home, End, and Page Up/Down navigation.
-    *   **Semantics**: Fully accessible for screen readers.
+    *   **Semantics**: Interactive bars expose a value and adjustment actions. Indicators expose a read-only value.
 *   **Customization**:
     *   **Builders**: Use any widget (Icons, Images, SVGs) for rated and unrated states.
     *   **Styling**: Custom colors, spacing, sizing, and glow effects.
@@ -33,14 +31,22 @@ A modern, high-performance, and accessible rating bar for Flutter.
 
 ## Installation
 
-Add this to your package's `pubspec.yaml` file:
+The examples use `material_ui` for Material widgets and `ratings_plus` for the rating controls. Add both dependencies to your app.
 
 ```yaml
 dependencies:
-  ratings_plus: ^1.0.0
+  material_ui: '>=0.0.1 <2.0.0'
+  ratings_plus: ^2.0.0
 ```
 
+The package supports Flutter 3.38.5 and later. Apps upgrading from 1.x should match their Material imports to the resolved `material_ui` version. [Migration guide](https://github.com/omar-hanafy/ratings_plus/blob/main/MIGRATION.md)
+
 ## Usage
+
+```dart
+import 'package:material_ui/material_ui.dart';
+import 'package:ratings_plus/ratings_plus.dart';
+```
 
 ### 1. Interactive Rating Bar
 
@@ -94,15 +100,15 @@ RatingBarIndicator(
 
 ### 3. Form Integration
 
-Seamlessly integrates with Flutter's `Form` widget for validation.
+Keep a `GlobalKey<FormState>` named `formKey` in the parent state. This form accepts ratings of one star or more. Clearing the selection returns it to zero.
 
 ```dart
 Form(
+  key: formKey,
   child: Column(
     children: [
       RatingBar.form(
         initialValue: 0.0,
-        minRating: 1.0,
         validator: (value) {
           if (value == null || value < 1.0) {
             return 'Please select a rating';
@@ -116,7 +122,8 @@ Form(
       ),
       ElevatedButton(
         onPressed: () {
-          // Validate and save
+          final form = formKey.currentState!;
+          if (form.validate()) form.save();
         },
         child: const Text('Submit'),
       ),
@@ -127,16 +134,16 @@ Form(
 
 ## Interaction Lifecycle
 
-`RatingBar` provides granular callbacks to help you manage complex interactions:
+Use the pointer callbacks to track a tap or drag from selection to completion.
 
-*   `onChangeStart`: Called when the user first touches the bar. Ideal for disabling parent scrolling (e.g., in a `ListView`).
-*   `onChanged`: Called continuously as the user drags or taps. Use this for immediate UI updates.
-*   `onChangeEnd`: Called when the user releases their finger. The best place to trigger API calls or database updates.
+* `onChangeStart` marks the start of a rating gesture.
+* `onChanged` reports the selected value after a tap or as a drag crosses rating steps. Keyboard and accessibility adjustments also use this callback.
+* `onChangeEnd` receives the final gesture value. If a parent scrollable cancels a pending tap, it receives the current rating.
 
 ```dart
 RatingBar(
   onChanged: (val) => setState(() => _current = val),
-  onChangeStart: (val) => _disableScroll(),
+  onChangeStart: (val) => _showPreview(val),
   onChangeEnd: (val) => _saveToDatabase(val),
   itemBuilder: (context, _) => const Icon(Icons.star, color: Colors.amber),
 )
@@ -165,18 +172,18 @@ RatingBar(
 |---|---|---|
 | `itemSize` | `40.0` | Size of each rating item (width and height). |
 | `spacing` | `0.0` | Logical pixel spacing between items. |
-| `unratedColor` | `Theme.disabledColor` | Color filter for unrated items (if no `unratedBuilder`). |
+| `unratedColor` | `ThemeData.disabledColor` | Color filter for unrated items (if no `unratedBuilder`). |
 | `glow` | `true` | Show glow effect during interaction. |
-| `glowColor` | `Theme.primaryColor` | Color of the touch glow. |
+| `glowColor` | `ColorScheme.primary` | Color of the touch glow. |
 | `glowRadius` | `2.0` | Spread radius of the glow. |
 | `animationDuration` | `150ms` | Duration for value change animations. |
 | `animationCurve` | `Curves.easeOutCubic` | Curve for value change animations. |
 | `enableHover` | `false` | Show rating preview on mouse hover (desktop/web). |
-| `enableFeedback` | `true` | Provide haptic feedback on value changes. |
+| `enableFeedback` | `true` | Request haptic feedback on discrete rating changes. |
 
 ## Global Theming
 
-Define the style once in your `ThemeData` to apply it consistently across your app.
+Add `RatingBarThemeData` to the `ThemeData.extensions` of your `material_ui` app. Individual widget properties take precedence.
 
 ```dart
 MaterialApp(
@@ -197,14 +204,9 @@ MaterialApp(
 
 ## Accessibility
 
-`ratings_plus` treats accessibility as a first-class citizen.
+Tab focuses an interactive rating bar when `enableKeyboard` is enabled. Arrow keys along the bar's axis adjust by one step, respecting RTL and vertical direction. Page Up and Page Down increase and decrease by one step. Home selects the minimum and End selects the maximum. Continuous ratings use one rating unit for keyboard and accessibility adjustments.
 
-*   **Keyboard Navigation**:
-    *   `Tab`: Focuses the rating bar.
-    *   `Arrow Keys`: Increase/decrease rating by `step`.
-    *   `Home` / `End`: Set rating to min / max.
-    *   `Page Up` / `Page Down`: Adjust rating by larger steps.
-*   **Semantics**: Screen readers announce the current value (e.g., "3.5 of 5.0") and hint that it is adjustable. Custom labels can be provided via `semanticLabel`.
+The control exposes its label, current value and adjustment actions to assistive technology. The default value text uses one decimal place, such as `3.5 / 5.0`. Set `semanticLabel` to identify the item being rated and `semanticValueFormatter` for localized wording or finer precision.
 
 ## License
 

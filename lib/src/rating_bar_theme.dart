@@ -1,6 +1,10 @@
+/// @docImport 'package:ratings_plus/src/rating_bar.dart';
+/// @docImport 'package:ratings_plus/src/rating_bar_indicator.dart';
+library;
+
 import 'dart:ui' show lerpDouble;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Defines the visual properties for [RatingBar] and [RatingBarIndicator].
 ///

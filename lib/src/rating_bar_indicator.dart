@@ -1,5 +1,7 @@
-import 'package:flutter/material.dart';
+/// @docImport 'package:ratings_plus/src/rating_bar_theme.dart';
+library;
 
+import 'package:flutter/widgets.dart';
 import 'package:ratings_plus/src/rating_bar.dart';
 
 /// A widget that displays a read-only rating indicator.
@@ -85,7 +87,7 @@ class RatingBarIndicator extends StatelessWidget {
 
   /// The text direction for horizontal layout.
   ///
-  /// If null, defaults to [Directionality.of(context)].
+  /// Defaults to the ambient [Directionality.of].
   final TextDirection? textDirection;
 
   /// The size (width and height) of each rating item.
@@ -130,7 +132,8 @@ class RatingBarIndicator extends StatelessWidget {
 
   /// Callback to format the semantic value for accessibility.
   ///
-  /// Defaults to `"$value / $maxRating"`.
+  /// By default, the rating and maximum each use one decimal place, separated
+  /// by ` / `. Supply a formatter for finer values or a localized description.
   final String Function(double value)? semanticValueFormatter;
 
   @override
@@ -139,7 +142,6 @@ class RatingBarIndicator extends StatelessWidget {
       itemBuilder: itemBuilder,
       unratedBuilder: unratedBuilder,
       value: value,
-      initialValue: value,
       itemCount: itemCount,
       direction: direction,
       verticalDirection: verticalDirection,

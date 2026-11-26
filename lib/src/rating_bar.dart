@@ -1,8 +1,11 @@
+/// @docImport 'package:ratings_plus/src/rating_bar_indicator.dart';
+library;
+
+import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
+import 'package:material_ui/material_ui.dart';
 import 'package:ratings_plus/src/rating_bar_theme.dart';
 
 /// Builds a widget for a specific rating item index.
@@ -28,8 +31,8 @@ enum RatingGestureMode {
 
   /// The rating is updated continuously as the user drags across the items.
   ///
-  /// Taps are treated as instantaneous drag events. This mode allows for fluid
-  /// adjustment but requires careful handling if placed within scrollable views.
+  /// Positions snap to the nearest [RatingBar.step]. Use [tapAndDrag] when
+  /// tapping an item should also support [RatingBar.allowClear].
   drag,
 
   /// The rating responds to both tap and drag interactions.
@@ -92,8 +95,8 @@ enum RatingGestureMode {
 /// ### Accessibility
 ///
 /// This widget provides full accessibility support:
-/// * **Semantics:** It announces the current value (e.g., "3.5 of 5.0") and
-///   provides "increase" and "decrease" actions.
+/// * **Semantics:** An interactive bar exposes one labeled slider with its
+///   current value and actions to increase or decrease the rating.
 /// * **Keyboard:** When focused, users can change the rating using Arrow keys
 ///   (step adjustment), Home (min), and End (max).
 ///
@@ -170,7 +173,7 @@ class RatingBar extends StatefulWidget {
   ///   initialValue: 0.0,
   ///   minRating: 1.0,
   ///   validator: (value) {
-  ///     if (value < 1.0) return 'Please rate us.';
+  ///     if (value == null || value < 1.0) return 'Please rate us.';
   ///     return null;
   ///   },
   ///   onSaved: (value) => _submitRating(value),
@@ -281,8 +284,8 @@ class RatingBar extends StatefulWidget {
   /// The initial rating value (Uncontrolled Mode).
   ///
   /// This value is used to initialize the internal state when [value] is null.
-  /// Changes to this property after the widget is mounted are ignored unless
-  /// the widget is rebuilt with a new key.
+  /// Rebuilding an uncontrolled bar with a different [initialValue] resets
+  /// its internal rating to the new value, clamped to the current bounds.
   ///
   /// Defaults to `0.0`.
   final double initialValue;
@@ -301,16 +304,15 @@ class RatingBar extends StatefulWidget {
 
   /// Callback triggered when a user interaction begins.
   ///
-  /// This is called when the user touches the rating bar or starts a drag.
-  /// It is useful for disabling parent scrolling (e.g., in a [ListView] or
-  /// [PageView]) to prevent gesture conflict.
+  /// The argument is the rating at the start of the press or drag. A parent
+  /// scrollable can still claim the gesture after a press begins.
   final ValueChanged<double>? onChangeStart;
 
   /// Callback triggered when a user interaction ends.
   ///
   /// This is called when the user lifts their finger or finishes a gesture.
-  /// It indicates the final value of the interaction sequence. This is the ideal
-  /// place to commit values to a database or API.
+  /// It reports the last rating selected by the gesture. A canceled tap
+  /// reports the current rating without calling [onChanged].
   final ValueChanged<double>? onChangeEnd;
 
   /// The total number of rating items (e.g., stars) to display.
@@ -334,7 +336,7 @@ class RatingBar extends StatefulWidget {
   /// The text direction for horizontal layouts.
   ///
   /// Determines if items flow Left-to-Right (LTR) or Right-to-Left (RTL).
-  /// If null, it defaults to [Directionality.of(context)].
+  /// Defaults to the ambient [Directionality.of].
   final TextDirection? textDirection;
 
   /// The size (width and height) of each rating item.
@@ -391,8 +393,8 @@ class RatingBar extends StatefulWidget {
 
   /// Whether to show a hover preview effect (desktop/web).
   ///
-  /// If `true`, moving the mouse over the bar temporarily shows what the
-  /// rating would be if clicked, without committing the value.
+  /// Moving the mouse previews the snapped rating at the pointer without
+  /// committing it. Pressing the bar or leaving it ends the preview.
   /// Defaults to `false`.
   final bool enableHover;
 
@@ -417,7 +419,7 @@ class RatingBar extends StatefulWidget {
 
   /// Whether to show a visual glow effect when interacting.
   ///
-  /// The glow appears behind the item currently being touched/dragged.
+  /// The glow appears behind the items while the bar is pressed.
   /// If null, defaults to [RatingBarThemeData.glow] or `true`.
   final bool? glow;
 
@@ -438,8 +440,8 @@ class RatingBar extends StatefulWidget {
 
   /// The duration of the animation when the rating changes.
   ///
-  /// This applies to programmatic changes and tap interactions. Drag interactions
-  /// generally update immediately.
+  /// This applies to programmatic changes and taps. Hover previews and drags
+  /// update immediately.
   /// If null, defaults to [RatingBarThemeData.animationDuration].
   final Duration? animationDuration;
 
@@ -471,7 +473,8 @@ class RatingBar extends StatefulWidget {
 
   /// A function to format the value announced by screen readers.
   ///
-  /// Defaults to `"$value / $maxRating"`.
+  /// By default, the rating and maximum each use one decimal place, separated
+  /// by ` / `. Supply a formatter for finer steps or a localized description.
   final String Function(double)? semanticValueFormatter;
 
   bool get _isInteractive =>
@@ -490,15 +493,13 @@ class _RatingBarState extends State<RatingBar> {
   bool _isPressed = false;
   bool _isHovered = false;
   bool _hasFocus = false;
-  bool _isInteracting = false;
   bool _isDragging = false;
   bool _tapCanceled = false;
-  bool _pendingClear = false;
 
   /// Used to avoid spamming feedback.
   double? _lastFeedbackValue;
 
-  /// Last value produced by a user interaction (tap/drag/keyboard).
+  /// A controlled parent may rebuild after the pointer has already lifted.
   double? _lastInteractionValue;
 
   FocusNode? _internalFocusNode;
@@ -532,6 +533,10 @@ class _RatingBarState extends State<RatingBar> {
       _internalValue = _clampValue(_internalValue);
     }
 
+    if (!widget.enableHover || !widget._isInteractive) {
+      _hoverValue = null;
+    }
+
     // If focus node changed, dispose the old internal one.
     if (oldWidget.focusNode != widget.focusNode) {
       _internalFocusNode?.dispose();
@@ -559,6 +564,7 @@ class _RatingBarState extends State<RatingBar> {
     final spacing = widget.spacing ?? themeExt.spacing;
 
     final enableFeedback = widget.enableFeedback ?? themeExt.enableFeedback;
+    final canFocus = widget.enableKeyboard && widget._isInteractive;
 
     final glowEnabled = widget.glow ?? themeExt.glow;
     final glowColor =
@@ -596,9 +602,9 @@ class _RatingBarState extends State<RatingBar> {
     final bar = TweenAnimationBuilder<double>(
       // Only set an `end` so Flutter can animate from the previous value.
       tween: Tween<double>(end: visualValue),
-      // We want implicit animation when the committed value changes. Hover
-      // updates should feel immediate.
-      duration: (_hoverValue == null) ? animDuration : Duration.zero,
+      duration: _hoverValue != null || _isDragging
+          ? Duration.zero
+          : animDuration,
       curve: animCurve,
       builder: (context, animatedVisual, _) {
         return _RatingBarItems(
@@ -623,49 +629,36 @@ class _RatingBarState extends State<RatingBar> {
       },
     );
 
-    final semanticsValue =
-        widget.semanticValueFormatter?.call(value) ??
-        '${value.toStringAsFixed(1)} / ${maxRating.toStringAsFixed(1)}';
-
-    // Calculate increased/decreased values for semantics
-    final step = widget.step <= 0 ? 1.0 : widget.step;
-    final effectiveMin = _effectiveMinRating(maxRating);
-    final increasedValue = (value + step)
-        .clamp(effectiveMin, maxRating)
-        .toDouble();
-    final decreasedValue = (value - step)
-        .clamp(effectiveMin, maxRating)
-        .toDouble();
-
-    final semanticsIncreasedValue =
-        widget.semanticValueFormatter?.call(increasedValue) ??
-        '${increasedValue.toStringAsFixed(1)} / ${maxRating.toStringAsFixed(1)}';
-    final semanticsDecreasedValue =
-        widget.semanticValueFormatter?.call(decreasedValue) ??
-        '${decreasedValue.toStringAsFixed(1)} / ${maxRating.toStringAsFixed(1)}';
+    String formatValue(double rating) =>
+        widget.semanticValueFormatter?.call(rating) ??
+        '${rating.toStringAsFixed(1)} / ${maxRating.toStringAsFixed(1)}';
 
     Widget result = Semantics(
       container: true,
+      excludeSemantics: true,
       label: widget.semanticLabel ?? 'Rating',
-      value: semanticsValue,
-      increasedValue: widget._isInteractive ? semanticsIncreasedValue : null,
-      decreasedValue: widget._isInteractive ? semanticsDecreasedValue : null,
+      value: formatValue(value),
+      increasedValue: widget._isInteractive ? formatValue(_nextStep(1)) : null,
+      decreasedValue: widget._isInteractive ? formatValue(_nextStep(-1)) : null,
       enabled: true,
       readOnly: !widget._isInteractive,
-      focusable: widget.enableKeyboard && widget._isInteractive,
+      slider: widget._isInteractive,
+      focusable: canFocus,
+      focused: canFocus ? _hasFocus : null,
+      onFocus: canFocus ? _focusNode.requestFocus : null,
       onIncrease: widget._isInteractive
-          ? () => _adjustByStep(1, announce: true, feedback: enableFeedback)
+          ? () => _setValue(_nextStep(1), feedback: enableFeedback)
           : null,
       onDecrease: widget._isInteractive
-          ? () => _adjustByStep(-1, announce: true, feedback: enableFeedback)
+          ? () => _setValue(_nextStep(-1), feedback: enableFeedback)
           : null,
       child: Focus(
         focusNode: _focusNode,
         autofocus: widget.autofocus,
-        canRequestFocus: widget.enableKeyboard && widget._isInteractive,
+        canRequestFocus: canFocus,
         onFocusChange: (hasFocus) => setState(() => _hasFocus = hasFocus),
-        onKeyEvent: widget.enableKeyboard && widget._isInteractive
-            ? _handleKeyEvent
+        onKeyEvent: canFocus
+            ? (_, event) => _handleKeyEvent(event, feedback: enableFeedback)
             : null,
         child: MouseRegion(
           cursor: resolvedCursor,
@@ -687,7 +680,7 @@ class _RatingBarState extends State<RatingBar> {
                     size: box.size,
                     textDirection: textDirection,
                     maxRating: maxRating,
-                    isTap: false,
+                    isTap: widget.gestureMode != RatingGestureMode.drag,
                     itemSize: itemSize,
                     spacing: spacing,
                   );
@@ -803,27 +796,23 @@ class _RatingBarState extends State<RatingBar> {
     return snapped.clamp(_effectiveMinRating(maxRating), maxRating).toDouble();
   }
 
-  void _setValue(
-    double newValue, {
-    required bool feedback,
-    required bool announce,
-  }) {
+  void _setValue(double newValue, {required bool feedback}) {
     final maxRating = widget.maxRating ?? widget.itemCount.toDouble();
     final clamped = newValue
         .clamp(_effectiveMinRating(maxRating), maxRating)
         .toDouble();
 
-    if ((clamped - _currentValue).abs() < _effectiveEpsilon(maxRating)) {
-      _lastInteractionValue = clamped;
+    // A FormField can hold an unrated value below the displayed minimum until
+    // the user explicitly selects that minimum.
+    final stored = widget.value ?? _internalValue;
+    if ((clamped - stored).abs() < _effectiveEpsilon(maxRating)) {
       return;
     }
-
-    _lastInteractionValue = clamped;
 
     // Feedback: only emit if the snapped value changed.
     if (feedback && widget.step > 0 && _lastFeedbackValue != clamped) {
       _lastFeedbackValue = clamped;
-      HapticFeedback.selectionClick();
+      unawaited(HapticFeedback.selectionClick());
     }
 
     if (widget.value == null) {
@@ -833,27 +822,16 @@ class _RatingBarState extends State<RatingBar> {
     widget.onChanged?.call(clamped);
   }
 
-  double _consumeInteractionValue() {
-    final value = _lastInteractionValue ?? _currentValue;
-    _lastInteractionValue = null;
-    return value;
-  }
-
-  void _adjustByStep(
-    int direction, {
-    required bool feedback,
-    required bool announce,
-  }) {
+  double _nextStep(int direction) {
     final step = widget.step <= 0 ? 1.0 : widget.step;
-    final next = _currentValue + direction * step;
-    _setValue(next, feedback: feedback, announce: announce);
+    return _clampValue(_currentValue + direction * step);
   }
 
   double _effectiveMinRating(double maxRating) {
     return widget.minRating <= maxRating ? widget.minRating : maxRating;
   }
 
-  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+  KeyEventResult _handleKeyEvent(KeyEvent event, {required bool feedback}) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
@@ -868,24 +846,24 @@ class _RatingBarState extends State<RatingBar> {
 
     if (key == LogicalKeyboardKey.home) {
       final maxRating = widget.maxRating ?? widget.itemCount.toDouble();
-      _setValue(_effectiveMinRating(maxRating), feedback: true, announce: true);
+      _setValue(_effectiveMinRating(maxRating), feedback: feedback);
       return KeyEventResult.handled;
     }
 
     if (key == LogicalKeyboardKey.end) {
       final maxRating = widget.maxRating ?? widget.itemCount.toDouble();
-      _setValue(maxRating, feedback: true, announce: true);
+      _setValue(maxRating, feedback: feedback);
       return KeyEventResult.handled;
     }
 
     // Horizontal RTL swaps meaning.
     if (isHorizontal) {
       if (key == LogicalKeyboardKey.arrowRight) {
-        _adjustByStep(isRtl ? -1 : 1, feedback: true, announce: true);
+        _setValue(_nextStep(isRtl ? -1 : 1), feedback: feedback);
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.arrowLeft) {
-        _adjustByStep(isRtl ? 1 : -1, feedback: true, announce: true);
+        _setValue(_nextStep(isRtl ? 1 : -1), feedback: feedback);
         return KeyEventResult.handled;
       }
     }
@@ -895,22 +873,21 @@ class _RatingBarState extends State<RatingBar> {
       final dirUp = widget.verticalDirection == VerticalDirection.up;
 
       if (key == LogicalKeyboardKey.arrowUp) {
-        _adjustByStep(dirUp ? 1 : -1, feedback: true, announce: true);
+        _setValue(_nextStep(dirUp ? 1 : -1), feedback: feedback);
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.arrowDown) {
-        _adjustByStep(dirUp ? -1 : 1, feedback: true, announce: true);
+        _setValue(_nextStep(dirUp ? -1 : 1), feedback: feedback);
         return KeyEventResult.handled;
       }
     }
 
-    // Page up/down as coarse adjustments.
     if (key == LogicalKeyboardKey.pageUp) {
-      _adjustByStep(1, feedback: true, announce: true);
+      _setValue(_nextStep(1), feedback: feedback);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.pageDown) {
-      _adjustByStep(-1, feedback: true, announce: true);
+      _setValue(_nextStep(-1), feedback: feedback);
       return KeyEventResult.handled;
     }
 
@@ -937,180 +914,97 @@ class _RatingBarState extends State<RatingBar> {
         widget.gestureMode == RatingGestureMode.drag ||
         widget.gestureMode == RatingGestureMode.tapAndDrag;
 
-    void beginInteraction(double next, {required bool feedback}) {
-      if (!_isInteracting) {
-        _isInteracting = true;
-        widget.onChangeStart?.call(next);
-      }
-      _isPressed = true;
-      _setValue(next, feedback: feedback, announce: true);
-      setState(() {});
+    double valueAt(Offset localPosition, {required bool isTap}) {
+      return _positionToValue(
+        localPosition,
+        size: context.size!,
+        textDirection: textDirection,
+        maxRating: maxRating,
+        isTap: isTap,
+        itemSize: itemSize,
+        spacing: spacing,
+      );
+    }
+
+    void beginInteraction(double next, {bool dragging = false}) {
+      final starting = !_isPressed;
+      setState(() {
+        _isPressed = true;
+        _isDragging = dragging;
+        _tapCanceled = false;
+        _hoverValue = null;
+      });
+      if (starting) widget.onChangeStart?.call(next);
+    }
+
+    void commit(double value) {
+      _lastInteractionValue = value;
+      _setValue(value, feedback: enableFeedback);
     }
 
     void endInteraction() {
-      if (!_isInteracting) return;
-      final value = _consumeInteractionValue();
+      if (!_isPressed) return;
+      final value = _lastInteractionValue ?? _currentValue;
+      setState(() {
+        _isPressed = false;
+        _isDragging = false;
+        _tapCanceled = false;
+        _lastInteractionValue = null;
+      });
       widget.onChangeEnd?.call(value);
-      _isInteracting = false;
-      _isDragging = false;
-      _tapCanceled = false;
-      _pendingClear = false;
-      setState(() => _isPressed = false);
     }
 
-    void scheduleTapCancelEnd() {
+    void cancelTap() {
       _tapCanceled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (_tapCanceled && !_isDragging) {
-          endInteraction();
-        }
-        _tapCanceled = false;
+      // A winning drag starts in the same pointer dispatch as the tap's
+      // cancellation. Keep the original start/end pair across that handoff.
+      scheduleMicrotask(() {
+        if (mounted && _tapCanceled) endInteraction();
       });
     }
+
+    void startDrag(DragStartDetails details) {
+      final next = valueAt(details.localPosition, isTap: false);
+      beginInteraction(next, dragging: true);
+      commit(next);
+    }
+
+    void updateDrag(DragUpdateDetails details) {
+      commit(valueAt(details.localPosition, isTap: false));
+    }
+
+    void cancelDrag() {
+      if (_isDragging) endInteraction();
+    }
+
+    final horizontalDrag = allowDrag && widget.direction == Axis.horizontal;
+    final verticalDrag = allowDrag && widget.direction == Axis.vertical;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: allowTap
-          ? (details) {
-              final box = context.findRenderObject() as RenderBox?;
-              if (box == null) return;
-
-              final valueFromTap = _positionToValue(
-                box.globalToLocal(details.globalPosition),
-                size: box.size,
-                textDirection: textDirection,
-                maxRating: maxRating,
-                isTap: true,
-                itemSize: itemSize,
-                spacing: spacing,
-              );
-
-              final current = _currentValue;
-              final effectiveMin = _effectiveMinRating(maxRating);
-              _pendingClear =
-                  widget.allowClear &&
-                  (valueFromTap - current).abs() <
-                      _effectiveEpsilon(maxRating) &&
-                  current > effectiveMin;
-
-              beginInteraction(valueFromTap, feedback: enableFeedback);
-            }
+          ? (details) =>
+                beginInteraction(valueAt(details.localPosition, isTap: true))
           : null,
       onTapUp: allowTap
-          ? (_) {
-              if (_pendingClear) {
-                _pendingClear = false;
-                _setValue(
-                  _effectiveMinRating(maxRating),
-                  feedback: enableFeedback,
-                  announce: true,
-                );
-              }
-              endInteraction();
-            }
-          : null,
-      onTapCancel: allowTap
-          ? () {
-              scheduleTapCancelEnd();
-            }
-          : null,
-      onHorizontalDragStart: allowDrag && widget.direction == Axis.horizontal
           ? (details) {
-              _isDragging = true;
-              _tapCanceled = false;
-              _pendingClear = false;
-              final box = context.findRenderObject() as RenderBox?;
-              if (box == null) return;
-
-              final next = _positionToValue(
-                box.globalToLocal(details.globalPosition),
-                size: box.size,
-                textDirection: textDirection,
-                maxRating: maxRating,
-                isTap: false,
-                itemSize: itemSize,
-                spacing: spacing,
-              );
-              beginInteraction(next, feedback: enableFeedback);
-            }
-          : null,
-      onHorizontalDragUpdate: allowDrag && widget.direction == Axis.horizontal
-          ? (details) {
-              final box = context.findRenderObject() as RenderBox?;
-              if (box == null) return;
-
-              final next = _positionToValue(
-                box.globalToLocal(details.globalPosition),
-                size: box.size,
-                textDirection: textDirection,
-                maxRating: maxRating,
-                isTap: false,
-                itemSize: itemSize,
-                spacing: spacing,
-              );
-
-              _setValue(next, feedback: enableFeedback, announce: false);
-            }
-          : null,
-      onHorizontalDragEnd: allowDrag && widget.direction == Axis.horizontal
-          ? (_) {
+              final tapped = valueAt(details.localPosition, isTap: true);
+              final clear =
+                  widget.allowClear &&
+                  (tapped - _currentValue).abs() < _effectiveEpsilon(maxRating);
+              commit(clear ? _effectiveMinRating(maxRating) : tapped);
               endInteraction();
             }
           : null,
-      onHorizontalDragCancel: allowDrag && widget.direction == Axis.horizontal
-          ? () {
-              endInteraction();
-            }
-          : null,
-      onVerticalDragStart: allowDrag && widget.direction == Axis.vertical
-          ? (details) {
-              _isDragging = true;
-              _tapCanceled = false;
-              _pendingClear = false;
-              final box = context.findRenderObject() as RenderBox?;
-              if (box == null) return;
-
-              final next = _positionToValue(
-                box.globalToLocal(details.globalPosition),
-                size: box.size,
-                textDirection: textDirection,
-                maxRating: maxRating,
-                isTap: false,
-                itemSize: itemSize,
-                spacing: spacing,
-              );
-              beginInteraction(next, feedback: enableFeedback);
-            }
-          : null,
-      onVerticalDragUpdate: allowDrag && widget.direction == Axis.vertical
-          ? (details) {
-              final box = context.findRenderObject() as RenderBox?;
-              if (box == null) return;
-
-              final next = _positionToValue(
-                box.globalToLocal(details.globalPosition),
-                size: box.size,
-                textDirection: textDirection,
-                maxRating: maxRating,
-                isTap: false,
-                itemSize: itemSize,
-                spacing: spacing,
-              );
-
-              _setValue(next, feedback: enableFeedback, announce: false);
-            }
-          : null,
-      onVerticalDragEnd: allowDrag && widget.direction == Axis.vertical
-          ? (_) {
-              endInteraction();
-            }
-          : null,
-      onVerticalDragCancel: allowDrag && widget.direction == Axis.vertical
-          ? () {
-              endInteraction();
-            }
-          : null,
+      onTapCancel: allowTap ? cancelTap : null,
+      onHorizontalDragStart: horizontalDrag ? startDrag : null,
+      onHorizontalDragUpdate: horizontalDrag ? updateDrag : null,
+      onHorizontalDragEnd: horizontalDrag ? (_) => endInteraction() : null,
+      onHorizontalDragCancel: horizontalDrag ? cancelDrag : null,
+      onVerticalDragStart: verticalDrag ? startDrag : null,
+      onVerticalDragUpdate: verticalDrag ? updateDrag : null,
+      onVerticalDragEnd: verticalDrag ? (_) => endInteraction() : null,
+      onVerticalDragCancel: verticalDrag ? cancelDrag : null,
       child: child,
     );
   }

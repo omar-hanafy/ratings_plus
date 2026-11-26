@@ -1,3 +1,10 @@
+## 2.0.0
+
+* **`RatingBarThemeData` now extends `ThemeExtension` from `material_ui`.** This breaks theme registration in apps that mix bundled and standalone Material types. The migration guide covers both libraries and Flutter 3.38.5 support. [Migration guide](MIGRATION.md)
+* Scrolling from a rating bar keeps the selected rating. Hover previews follow tap snapping, and a drag paints the new fractional fill on its next frame.
+* Interactive ratings expose one labeled slider to assistive technology. Keyboard changes honor the widget and theme feedback settings.
+* Read-only indicators clamp negative values to zero. Selecting the minimum rating can now validate a form initialized below its minimum.
+
 ## 1.0.0
 
 * Initial release of `ratings_plus`.

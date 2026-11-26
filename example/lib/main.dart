@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ratings_plus/ratings_plus.dart';
 
 void main() {
@@ -18,7 +18,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.amber),
         // Global theme for RatingBars
         extensions: const [
-          RatingBarThemeData(itemSize: 40, glowColor: Colors.amber),
+          RatingBarThemeData(itemSize: 48, glowColor: Colors.amber),
         ],
       ),
       home: const RatingBarDemo(),
@@ -34,7 +34,7 @@ class RatingBarDemo extends StatefulWidget {
 }
 
 class _RatingBarDemoState extends State<RatingBarDemo> {
-  double _rating = 3.0;
+  double _fractionalRating = 2.5;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +54,7 @@ class _RatingBarDemoState extends State<RatingBarDemo> {
             Center(
               child: RatingBar(
                 initialValue: 3,
+                semanticLabel: 'Star rating',
                 itemBuilder: (context, index) =>
                     const Icon(Icons.star, color: Colors.amber),
                 onChanged: (rating) {
@@ -65,17 +66,21 @@ class _RatingBarDemoState extends State<RatingBarDemo> {
             _buildHeader('Fractional Rating (0.5 step)'),
             Center(
               child: RatingBar(
-                initialValue: 2.5,
+                value: _fractionalRating,
+                gestureMode: RatingGestureMode.tap,
+                semanticLabel: 'Fractional rating',
+                enableFeedback: false,
                 step: 0.5,
                 allowClear: true,
                 itemBuilder: (context, index) =>
                     const Icon(Icons.star_rounded, color: Colors.blueAccent),
-                onChanged: (rating) => setState(() => _rating = rating),
+                onChanged: (rating) =>
+                    setState(() => _fractionalRating = rating),
               ),
             ),
             Center(
               child: Text(
-                'Value: $_rating',
+                'Value: ${_fractionalRating.toStringAsFixed(1)}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -85,6 +90,7 @@ class _RatingBarDemoState extends State<RatingBarDemo> {
               child: RatingBar(
                 initialValue: 3,
                 itemCount: 5,
+                semanticLabel: 'Mood rating',
                 itemBuilder: (context, index) {
                   switch (index) {
                     case 0:
@@ -130,6 +136,7 @@ class _RatingBarDemoState extends State<RatingBarDemo> {
                 padding: const EdgeInsets.all(16),
                 child: RatingBar(
                   initialValue: 3,
+                  semanticLabel: 'Heat rating',
                   direction: Axis.vertical,
                   verticalDirection: VerticalDirection.up, // Grows upwards
                   itemCount: 5,
@@ -149,6 +156,7 @@ class _RatingBarDemoState extends State<RatingBarDemo> {
             Center(
               child: RatingBarIndicator(
                 value: 4.3,
+                semanticLabel: 'Average rating',
                 itemCount: 5,
                 itemSize: 30.0,
                 itemBuilder: (context, index) =>
@@ -163,7 +171,7 @@ class _RatingBarDemoState extends State<RatingBarDemo> {
                 children: [
                   RatingBar.form(
                     initialValue: 0,
-                    minRating: 1,
+                    semanticLabel: 'Form rating',
                     validator: (value) {
                       if (value == null || value < 1) {
                         return 'Please select a rating';

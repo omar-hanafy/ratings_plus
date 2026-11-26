@@ -1,0 +1,13 @@
+name: Publish to pub.dev
+
+on:
+  push:
+    tags: ['ratings_plus-v*']
+
+permissions: {}
+
+jobs:
+  publish:
+    permissions:
+      id-token: write # Authenticate to pub.dev through GitHub OIDC.
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1.8.2

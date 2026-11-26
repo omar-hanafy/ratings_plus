@@ -1,0 +1,3 @@
+# Exercise the SDK migration independently of package style rules.
+linter:
+  rules: []

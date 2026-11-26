@@ -34,6 +34,11 @@
 /// * **[RatingBarThemeData]**: Global styling via [ThemeData.extensions].
 ///
 /// See the individual classes for detailed behavioral documentation.
+///
+/// @docImport 'package:material_ui/material_ui.dart';
+/// @docImport 'package:ratings_plus/src/rating_bar.dart';
+/// @docImport 'package:ratings_plus/src/rating_bar_indicator.dart';
+/// @docImport 'package:ratings_plus/src/rating_bar_theme.dart';
 library;
 
 export 'src/rating_bar.dart';
