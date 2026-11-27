@@ -1,3 +1,9 @@
+## 2.0.1
+
+* Enhanced `README.md` with clickable UI showcase screenshots, a live Flutter Web demo link on GitHub Pages, expanded usage samples, and `glowBlurRadius` / `mouseCursor` configuration documentation.
+* Added package screenshots to `pubspec.yaml` for the pub.dev package page.
+* Upgraded the `example` app into an interactive gallery and live playground with Light/Dark and LTR/RTL toggles, deep-linkable showcase sections, and copyable Dart code snippets.
+
 ## 2.0.0
 
 * **`RatingBarThemeData` now extends `ThemeExtension` from `material_ui`.** This breaks theme registration in apps that mix bundled and standalone Material types. The migration guide covers both libraries and Flutter 3.38.5 support. [Migration guide](MIGRATION.md)

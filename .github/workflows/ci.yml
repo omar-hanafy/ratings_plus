@@ -52,5 +52,7 @@ jobs:
       - name: Check pub points
         if: matrix.flutter == 'stable'
         run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends webp
           dart pub global activate pana 0.23.14
           pana --exit-code-threshold 0 .
