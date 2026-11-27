@@ -1,5 +1,8 @@
-# Ratings Plus example
+# Ratings Plus Example
 
-Run `flutter run` from this directory. The demo includes a controlled half-star rating, custom item builders, a bottom-up vertical bar, a read-only average and a validated form.
+Interactive showcase and playground for [`ratings_plus`](https://pub.dev/packages/ratings_plus).
 
-Use the half-star bar to select a value or tap the selection again to clear it. Scroll vertically from this bar to move through the demo. The form shows its validation error until a star is selected.
+- **Live Demo:** https://omar-hanafy.github.io/ratings_plus/
+- **Run locally:** `flutter run` from this directory (or `flutter run -d chrome` for web).
+
+The demo includes a curated **Gallery** (tap/drag/hover stars, controlled half-star bar, continuous precision, per-index mood icons, custom `unratedBuilder` outlines, scaled `maxRating` points, bottom-up vertical meters, RTL preview, read-only review summary, and a validated `RatingBar.form`) plus an interactive **Playground** that generates live Dart snippets.

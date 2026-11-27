@@ -1,6 +1,6 @@
 name: ratings_plus
 description: A fully customizable rating bar for Flutter. Supports fractional ratings, custom shapes, gestures, forms, and global theming.
-version: 2.0.0
+version: 2.0.1
 repository: https://github.com/omar-hanafy/ratings_plus
 issue_tracker: https://github.com/omar-hanafy/ratings_plus/issues
 
@@ -9,6 +9,18 @@ topics:
   - star-rating
   - widgets
   - form
+
+screenshots:
+  - description: 'Ratings Plus interactive gallery featuring fractional stars, custom mood builders, outlined hearts, and scaled scores.'
+    path: doc/screenshots/hero-light.png
+  - description: 'Interactive Playground with live RatingBar preview, property controls, and generated Dart snippet.'
+    path: doc/screenshots/playground.png
+  - description: 'Read-only review summary, validated RatingBar.form card, vertical meters, custom gradient widgets, and RTL clipping.'
+    path: doc/screenshots/reviews-and-layouts.png
+  - description: 'Dark mode showcase powered by RatingBarThemeData.'
+    path: doc/screenshots/dark-mode.png
+  - description: 'Native right-to-left (RTL) directionality and fractional clipping showcase.'
+    path: doc/screenshots/rtl-showcase.png
 
 environment:
   sdk: ^3.10.4
